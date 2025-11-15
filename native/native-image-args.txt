@@ -1,0 +1,11 @@
+-H:+UnlockExperimentalVMOptions
+-H:+ReportExceptionStackTraces
+-H:Name=libcrocon
+-R:MaxHeapSize=4g
+-R:MinHeapSize=1g
+-R:StackSize=50m
+--initialize-at-build-time=com.hivemc.chunker.mapping
+--initialize-at-build-time=com.github.benmanes.caffeine
+-H:IncludeResources='.*\.json$'
+--no-fallback
+--shared
