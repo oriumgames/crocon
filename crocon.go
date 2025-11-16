@@ -2,7 +2,7 @@ package crocon
 
 /*
 #cgo CFLAGS: -I./include
-#cgo LDFLAGS: -L${SRCDIR} -lcrocon -Wl,-rpath=${SRCDIR}
+#cgo LDFLAGS: -lcrocon
 #include <stdlib.h>
 #include "crocon.h"
 #include "graal_isolate.h"
