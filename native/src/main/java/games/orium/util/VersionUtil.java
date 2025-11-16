@@ -1,6 +1,5 @@
 package games.orium.util;
 
-
 import com.hivemc.chunker.conversion.encoding.bedrock.BedrockDataVersion;
 import com.hivemc.chunker.conversion.encoding.java.JavaDataVersion;
 

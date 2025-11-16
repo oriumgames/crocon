@@ -18,57 +18,43 @@ public class BiomeConverter {
         Edition toEdition,
         CompoundTag data
     ) throws IllegalArgumentException {
-        if (fromEdition == Edition.JAVA && toEdition == Edition.BEDROCK) {
+        Optional<ChunkerBiome> chunkerBiome;
+        if (fromEdition == Edition.JAVA) {
             String biomeName = data.getString("name");
             if (biomeName == null || biomeName.isEmpty()) {
                 throw new IllegalArgumentException(
                     "Input data for Java biome conversion must contain a 'name' field."
                 );
             }
-
-            Optional<ChunkerBiome> chunkerBiome = cache.javaBiomeResolver.to(
-                biomeName
-            );
+            chunkerBiome = cache.javaBiomeResolver.to(biomeName);
             if (chunkerBiome.isEmpty()) {
                 throw new IllegalArgumentException(
                     "Unknown or invalid Java biome name: " + biomeName
                 );
             }
-
-            return cache.bedrockBiomeResolver
-                .from(chunkerBiome.get())
-                .map(id -> {
-                    CompoundTag result = new CompoundTag();
-                    result.put("id", id);
-                    return result;
-                })
-                .orElseThrow(() ->
-                    new IllegalArgumentException(
-                        "Failed to convert Java biome to Bedrock ID: " +
-                            biomeName
-                    )
-                );
-        } else if (
-            fromEdition == Edition.BEDROCK && toEdition == Edition.JAVA
-        ) {
+        } else if (fromEdition == Edition.BEDROCK) {
             if (!data.contains("id")) {
                 throw new IllegalArgumentException(
                     "Input data for Bedrock biome conversion must contain an 'id' field."
                 );
             }
             int biomeId = data.getInt("id");
-
-            Optional<ChunkerBiome> chunkerBiome = cache.bedrockBiomeResolver.to(
-                biomeId
-            );
+            chunkerBiome = cache.bedrockBiomeResolver.to(biomeId);
             if (chunkerBiome.isEmpty()) {
                 throw new IllegalArgumentException(
                     "Unknown or invalid Bedrock biome ID: " + biomeId
                 );
             }
+        } else {
+            throw new UnsupportedOperationException(
+                "Unsupported 'from' edition: " + fromEdition
+            );
+        }
 
+        ChunkerBiome biome = chunkerBiome.get();
+        if (toEdition == Edition.JAVA) {
             return cache.javaBiomeResolver
-                .from(chunkerBiome.get())
+                .from(biome)
                 .map(name -> {
                     CompoundTag result = new CompoundTag();
                     result.put("name", name);
@@ -76,17 +62,26 @@ public class BiomeConverter {
                 })
                 .orElseThrow(() ->
                     new IllegalArgumentException(
-                        "Failed to convert Bedrock biome to Java name: " +
-                            biomeId
+                        "Failed to convert biome to Java name: " + biome
                     )
                 );
+        } else if (toEdition == Edition.BEDROCK) {
+            return cache.bedrockBiomeResolver
+                .from(biome)
+                .map(id -> {
+                    CompoundTag result = new CompoundTag();
+                    result.put("id", id);
+                    return result;
+                })
+                .orElseThrow(() ->
+                    new IllegalArgumentException(
+                        "Failed to convert biome to Bedrock ID: " + biome
+                    )
+                );
+        } else {
+            throw new UnsupportedOperationException(
+                "Unsupported 'to' edition: " + toEdition
+            );
         }
-
-        throw new UnsupportedOperationException(
-            "Unsupported conversion direction from " +
-                fromEdition +
-                " to " +
-                toEdition
-        );
     }
 }

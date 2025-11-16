@@ -5,16 +5,15 @@ import com.hivemc.chunker.nbt.tags.collection.CompoundTag;
 import games.orium.cache.CacheManager;
 import games.orium.cache.ResolverCache;
 import games.orium.util.Edition;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.util.Base64;
 import org.graalvm.nativeimage.UnmanagedMemory;
 import org.graalvm.nativeimage.c.type.CCharPointer;
 import org.graalvm.nativeimage.c.type.CTypeConversion;
 import org.graalvm.word.UnsignedWord;
 import org.graalvm.word.WordFactory;
-
-import java.io.IOException;
-import java.io.PrintWriter;
-import java.io.StringWriter;
-import java.util.Base64;
 
 public class ConversionService {
 
@@ -39,6 +38,7 @@ public class ConversionService {
             byte[] nbtBytes = Base64.getDecoder().decode(inputStr);
             CompoundTag inputNbt = Tag.readBedrockNBT(nbtBytes);
 
+            assert inputNbt != null;
             String fromVersion = inputNbt.getString("fromVersion", "1.20.4");
             String toVersion = inputNbt.getString("toVersion", "1.20.80");
             String fromEditionStr = inputNbt.getString("fromEdition", "java");
@@ -73,10 +73,7 @@ public class ConversionService {
             resultNbt.put("stackTrace", getStackTrace(e));
         } catch (Exception e) {
             resultNbt.put("success", (byte) 0);
-            resultNbt.put(
-                "error",
-                e.getMessage()
-            );
+            resultNbt.put("error", e.getMessage());
             resultNbt.put("stackTrace", getStackTrace(e));
         }
 

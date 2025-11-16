@@ -18,53 +18,47 @@ public class ItemConverter {
         Edition toEdition,
         CompoundTag data
     ) throws IllegalArgumentException {
-        if (fromEdition == Edition.JAVA && toEdition == Edition.BEDROCK) {
-            Optional<ChunkerItemStack> chunkerItem =
-                cache.javaItemStackResolver.to(data);
+        Optional<ChunkerItemStack> chunkerItem;
+        String idForError = data.getString("id", "unknown");
 
+        if (fromEdition == Edition.JAVA) {
+            chunkerItem = cache.javaItemStackResolver.to(data);
             if (chunkerItem.isEmpty()) {
                 throw new IllegalArgumentException(
-                    "Failed to parse Java item NBT for ID: " +
-                        data.getString("id", "unknown")
+                    "Failed to parse Java item NBT for ID: " + idForError
                 );
             }
-
-            return cache.bedrockItemStackResolver
-                .from(chunkerItem.get())
-                .orElseThrow(() ->
-                    new IllegalArgumentException(
-                        "Failed to convert Java item to Bedrock format for ID: " +
-                            data.getString("id", "unknown")
-                    )
-                );
-        } else if (
-            fromEdition == Edition.BEDROCK && toEdition == Edition.JAVA
-        ) {
-            Optional<ChunkerItemStack> chunkerItem =
-                cache.bedrockItemStackResolver.to(data);
-
+        } else if (fromEdition == Edition.BEDROCK) {
+            chunkerItem = cache.bedrockItemStackResolver.to(data);
             if (chunkerItem.isEmpty()) {
                 throw new IllegalArgumentException(
-                    "Failed to parse Bedrock item NBT for ID: " +
-                        data.getString("id", "unknown")
+                    "Failed to parse Bedrock item NBT for ID: " + idForError
                 );
             }
-
-            return cache.javaItemStackResolver
-                .from(chunkerItem.get())
-                .orElseThrow(() ->
-                    new IllegalArgumentException(
-                        "Failed to convert Bedrock item to Java format for ID: " +
-                            data.getString("id", "unknown")
-                    )
-                );
+        } else {
+            throw new UnsupportedOperationException(
+                "Unsupported 'from' edition: " + fromEdition
+            );
         }
 
-        throw new UnsupportedOperationException(
-            "Unsupported conversion direction from " +
-                fromEdition +
-                " to " +
-                toEdition
+        Optional<CompoundTag> result;
+        if (toEdition == Edition.JAVA) {
+            result = cache.javaItemStackResolver.from(chunkerItem.get());
+        } else if (toEdition == Edition.BEDROCK) {
+            result = cache.bedrockItemStackResolver.from(chunkerItem.get());
+        } else {
+            throw new UnsupportedOperationException(
+                "Unsupported 'to' edition: " + toEdition
+            );
+        }
+
+        return result.orElseThrow(() ->
+            new IllegalArgumentException(
+                "Failed to convert item to " +
+                    toEdition +
+                    " format for ID: " +
+                    idForError
+            )
         );
     }
 }

@@ -17,13 +17,10 @@ public class EntityConverter {
         Edition fromEdition,
         Edition toEdition,
         CompoundTag data
-    ) throws Exception {
-        if (fromEdition == Edition.JAVA && toEdition == Edition.BEDROCK) {
-            // Java NBT -> Chunker -> Bedrock NBT
-            Optional<Entity> entity = cache.javaResolvers
-                .entityResolver()
-                .to(data);
-
+    ) {
+        Optional<Entity> entity;
+        if (fromEdition == Edition.JAVA) {
+            entity = cache.javaResolvers.entityResolver().to(data);
             if (entity.isEmpty()) {
                 String identifier = data
                     .getOptionalValue("id", String.class)
@@ -32,25 +29,8 @@ public class EntityConverter {
                     "Failed to parse Java entity NBT. ID: " + identifier
                 );
             }
-
-            Optional<CompoundTag> result = cache.bedrockResolvers
-                .entityResolver()
-                .from(entity.get());
-
-            if (result.isEmpty() || result.get().size() == 0) {
-                throw new IllegalStateException(
-                    "Failed to convert entity to Bedrock format"
-                );
-            }
-            return result.get();
-        } else if (
-            fromEdition == Edition.BEDROCK && toEdition == Edition.JAVA
-        ) {
-            // Bedrock NBT -> Chunker -> Java NBT
-            Optional<Entity> entity = cache.bedrockResolvers
-                .entityResolver()
-                .to(data);
-
+        } else if (fromEdition == Edition.BEDROCK) {
+            entity = cache.bedrockResolvers.entityResolver().to(data);
             if (entity.isEmpty()) {
                 String identifier = data
                     .getOptionalValue("identifier", String.class)
@@ -59,24 +39,28 @@ public class EntityConverter {
                     "Failed to parse Bedrock entity NBT. ID: " + identifier
                 );
             }
-
-            Optional<CompoundTag> result = cache.javaResolvers
-                .entityResolver()
-                .from(entity.get());
-
-            if (result.isEmpty() || result.get().size() == 0) {
-                throw new IllegalStateException(
-                    "Failed to convert entity to Java format"
-                );
-            }
-            return result.get();
+        } else {
+            throw new UnsupportedOperationException(
+                "Unsupported 'from' edition: " + fromEdition
+            );
         }
 
-        throw new IllegalArgumentException(
-            "Unsupported conversion direction: " +
-                fromEdition +
-                " to " +
-                toEdition
-        );
+        Optional<CompoundTag> result;
+        if (toEdition == Edition.JAVA) {
+            result = cache.javaResolvers.entityResolver().from(entity.get());
+        } else if (toEdition == Edition.BEDROCK) {
+            result = cache.bedrockResolvers.entityResolver().from(entity.get());
+        } else {
+            throw new UnsupportedOperationException(
+                "Unsupported 'to' edition: " + toEdition
+            );
+        }
+
+        if (result.isEmpty() || result.get().size() == 0) {
+            throw new IllegalStateException(
+                "Failed to convert entity to " + toEdition + " format"
+            );
+        }
+        return result.get();
     }
 }

@@ -8,8 +8,9 @@ public class CacheManager {
     private static final Map<String, ResolverCache> VERSION_CACHE =
         new ConcurrentHashMap<>();
 
-    // Private constructor to prevent instantiation
-    private CacheManager() {}
+    private CacheManager() {
+        // Private constructor to prevent instantiation
+    }
 
     // Pre-initialize common version pairs to avoid stack issues during JNI calls
     static {
@@ -39,7 +40,7 @@ public class CacheManager {
         String bedrockVersion
     ) {
         String cacheKey = javaVersion + ":" + bedrockVersion;
-        return VERSION_CACHE.computeIfAbsent(cacheKey, k ->
+        return VERSION_CACHE.computeIfAbsent(cacheKey, _ ->
             new ResolverCache(javaVersion, bedrockVersion)
         );
     }
