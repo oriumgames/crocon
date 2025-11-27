@@ -14,6 +14,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"runtime"
+	"sync"
 	"unsafe"
 
 	"github.com/oriumgames/nbt"
@@ -43,6 +44,7 @@ type Converter struct {
 	requestChan    chan conversionRequest
 	shutdownChan   chan struct{}
 	workerDoneChan chan struct{}
+	cache          sync.Map
 }
 
 // NewConverter creates a new instance of the converter. It initializes a GraalVM isolate
@@ -131,22 +133,20 @@ type nbtRequest struct {
 	Data        any     `nbt:"data"`
 }
 
-// prepareRequest handles marshalling the Go request struct to a Base64-encoded C-style string.
+// marshalRequest handles marshalling the Go request struct to a Base64-encoded string.
 // It explicitly uses Bedrock (Little Endian) NBT encoding.
-func prepareRequest(request nbtRequest) (*C.char, error) {
+func marshalRequest(request nbtRequest) (string, error) {
 	var buf bytes.Buffer
 	encoder := nbt.NewEncoderWithEncoding(&buf, nbt.LittleEndian)
 	if err := encoder.Encode(request); err != nil {
-		return nil, fmt.Errorf("failed to marshal request to Bedrock NBT: %w", err)
+		return "", fmt.Errorf("failed to marshal request to Bedrock NBT: %w", err)
 	}
 
-	b64Input := base64.StdEncoding.EncodeToString(buf.Bytes())
-	return C.CString(b64Input), nil
+	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
 }
 
-// processResponse handles unmarshalling the C-style string response into a Go struct.
-func processResponse(cResult *C.char, responseData any) error {
-	b64Result := C.GoString(cResult)
+// processResponseString handles unmarshalling the base64 string response into a Go struct.
+func processResponseString(b64Result string, responseData any) error {
 	nbtResultBytes, err := base64.StdEncoding.DecodeString(b64Result)
 	if err != nil {
 		return fmt.Errorf("failed to base64-decode response from library: %w", err)
@@ -206,18 +206,28 @@ func (c *Converter) dispatch(payload any, convertFunc func(*C.graal_isolatethrea
 
 // ConvertBlock converts a block between editions.
 func (c *Converter) ConvertBlock(req BlockRequest) (*Block, error) {
-	res, err := c.dispatch(req, func(thread *C.graal_isolatethread_t, payload any) (any, error) {
-		req := payload.(BlockRequest)
-		nbtReq := nbtRequest{
-			FromVersion: req.FromVersion, ToVersion: req.ToVersion,
-			FromEdition: req.FromEdition, ToEdition: req.ToEdition,
-			Data: req.Block,
-		}
+	nbtReq := nbtRequest{
+		FromVersion: req.FromVersion, ToVersion: req.ToVersion,
+		FromEdition: req.FromEdition, ToEdition: req.ToEdition,
+		Data: req.Block,
+	}
 
-		cInput, err := prepareRequest(nbtReq)
-		if err != nil {
+	b64Input, err := marshalRequest(nbtReq)
+	if err != nil {
+		return nil, err
+	}
+
+	cacheKey := "block:" + b64Input
+	if cached, ok := c.cache.Load(cacheKey); ok {
+		var responseBlock Block
+		if err := processResponseString(cached.(string), &responseBlock); err != nil {
 			return nil, err
 		}
+		return &responseBlock, nil
+	}
+
+	res, err := c.dispatch(b64Input, func(thread *C.graal_isolatethread_t, payload any) (any, error) {
+		cInput := C.CString(payload.(string))
 		defer C.free(unsafe.Pointer(cInput))
 
 		cResult := C.convert_block(thread, cInput)
@@ -226,33 +236,47 @@ func (c *Converter) ConvertBlock(req BlockRequest) (*Block, error) {
 		}
 		defer C.free_result(thread, cResult)
 
-		var responseBlock Block
-		if err := processResponse(cResult, &responseBlock); err != nil {
-			return nil, err
-		}
-		return &responseBlock, nil
+		return C.GoString(cResult), nil
 	})
 
 	if err != nil {
 		return nil, err
 	}
-	return res.(*Block), nil
+
+	b64Result := res.(string)
+	c.cache.Store(cacheKey, b64Result)
+
+	var responseBlock Block
+	if err := processResponseString(b64Result, &responseBlock); err != nil {
+		return nil, err
+	}
+	return &responseBlock, nil
 }
 
 // ConvertItem converts an item stack between editions.
 func (c *Converter) ConvertItem(req ItemRequest) (*Item, error) {
-	res, err := c.dispatch(req, func(thread *C.graal_isolatethread_t, payload any) (any, error) {
-		req := payload.(ItemRequest)
-		nbtReq := nbtRequest{
-			FromVersion: req.FromVersion, ToVersion: req.ToVersion,
-			FromEdition: req.FromEdition, ToEdition: req.ToEdition,
-			Data: req.Item,
-		}
+	nbtReq := nbtRequest{
+		FromVersion: req.FromVersion, ToVersion: req.ToVersion,
+		FromEdition: req.FromEdition, ToEdition: req.ToEdition,
+		Data: req.Item,
+	}
 
-		cInput, err := prepareRequest(nbtReq)
-		if err != nil {
+	b64Input, err := marshalRequest(nbtReq)
+	if err != nil {
+		return nil, err
+	}
+
+	cacheKey := "item:" + b64Input
+	if cached, ok := c.cache.Load(cacheKey); ok {
+		var responseItem Item
+		if err := processResponseString(cached.(string), &responseItem); err != nil {
 			return nil, err
 		}
+		return &responseItem, nil
+	}
+
+	res, err := c.dispatch(b64Input, func(thread *C.graal_isolatethread_t, payload any) (any, error) {
+		cInput := C.CString(payload.(string))
 		defer C.free(unsafe.Pointer(cInput))
 
 		cResult := C.convert_item(thread, cInput)
@@ -261,33 +285,47 @@ func (c *Converter) ConvertItem(req ItemRequest) (*Item, error) {
 		}
 		defer C.free_result(thread, cResult)
 
-		var responseItem Item
-		if err := processResponse(cResult, &responseItem); err != nil {
-			return nil, err
-		}
-		return &responseItem, nil
+		return C.GoString(cResult), nil
 	})
 
 	if err != nil {
 		return nil, err
 	}
-	return res.(*Item), nil
+
+	b64Result := res.(string)
+	c.cache.Store(cacheKey, b64Result)
+
+	var responseItem Item
+	if err := processResponseString(b64Result, &responseItem); err != nil {
+		return nil, err
+	}
+	return &responseItem, nil
 }
 
 // ConvertEntity converts an entity between editions.
 func (c *Converter) ConvertEntity(req EntityRequest) (*Entity, error) {
-	res, err := c.dispatch(req, func(thread *C.graal_isolatethread_t, payload any) (any, error) {
-		req := payload.(EntityRequest)
-		nbtReq := nbtRequest{
-			FromVersion: req.FromVersion, ToVersion: req.ToVersion,
-			FromEdition: req.FromEdition, ToEdition: req.ToEdition,
-			Data: req.Entity,
-		}
+	nbtReq := nbtRequest{
+		FromVersion: req.FromVersion, ToVersion: req.ToVersion,
+		FromEdition: req.FromEdition, ToEdition: req.ToEdition,
+		Data: req.Entity,
+	}
 
-		cInput, err := prepareRequest(nbtReq)
-		if err != nil {
+	b64Input, err := marshalRequest(nbtReq)
+	if err != nil {
+		return nil, err
+	}
+
+	cacheKey := "entity:" + b64Input
+	if cached, ok := c.cache.Load(cacheKey); ok {
+		var responseEntity Entity
+		if err := processResponseString(cached.(string), &responseEntity); err != nil {
 			return nil, err
 		}
+		return &responseEntity, nil
+	}
+
+	res, err := c.dispatch(b64Input, func(thread *C.graal_isolatethread_t, payload any) (any, error) {
+		cInput := C.CString(payload.(string))
 		defer C.free(unsafe.Pointer(cInput))
 
 		cResult := C.convert_entity(thread, cInput)
@@ -296,33 +334,47 @@ func (c *Converter) ConvertEntity(req EntityRequest) (*Entity, error) {
 		}
 		defer C.free_result(thread, cResult)
 
-		var responseEntity Entity
-		if err := processResponse(cResult, &responseEntity); err != nil {
-			return nil, err
-		}
-		return &responseEntity, nil
+		return C.GoString(cResult), nil
 	})
 
 	if err != nil {
 		return nil, err
 	}
-	return res.(*Entity), nil
+
+	b64Result := res.(string)
+	c.cache.Store(cacheKey, b64Result)
+
+	var responseEntity Entity
+	if err := processResponseString(b64Result, &responseEntity); err != nil {
+		return nil, err
+	}
+	return &responseEntity, nil
 }
 
 // ConvertBiome converts a biome identifier between editions.
 func (c *Converter) ConvertBiome(req BiomeRequest) (*BiomeResponse, error) {
-	res, err := c.dispatch(req, func(thread *C.graal_isolatethread_t, payload any) (any, error) {
-		req := payload.(BiomeRequest)
-		nbtReq := nbtRequest{
-			FromVersion: req.FromVersion, ToVersion: req.ToVersion,
-			FromEdition: req.FromEdition, ToEdition: req.ToEdition,
-			Data: req.Data,
-		}
+	nbtReq := nbtRequest{
+		FromVersion: req.FromVersion, ToVersion: req.ToVersion,
+		FromEdition: req.FromEdition, ToEdition: req.ToEdition,
+		Data: req.Data,
+	}
 
-		cInput, err := prepareRequest(nbtReq)
-		if err != nil {
+	b64Input, err := marshalRequest(nbtReq)
+	if err != nil {
+		return nil, err
+	}
+
+	cacheKey := "biome:" + b64Input
+	if cached, ok := c.cache.Load(cacheKey); ok {
+		var responseBiome BiomeResponse
+		if err := processResponseString(cached.(string), &responseBiome); err != nil {
 			return nil, err
 		}
+		return &responseBiome, nil
+	}
+
+	res, err := c.dispatch(b64Input, func(thread *C.graal_isolatethread_t, payload any) (any, error) {
+		cInput := C.CString(payload.(string))
 		defer C.free(unsafe.Pointer(cInput))
 
 		cResult := C.convert_biome(thread, cInput)
@@ -331,33 +383,47 @@ func (c *Converter) ConvertBiome(req BiomeRequest) (*BiomeResponse, error) {
 		}
 		defer C.free_result(thread, cResult)
 
-		var responseBiome BiomeResponse
-		if err := processResponse(cResult, &responseBiome); err != nil {
-			return nil, err
-		}
-		return &responseBiome, nil
+		return C.GoString(cResult), nil
 	})
 
 	if err != nil {
 		return nil, err
 	}
-	return res.(*BiomeResponse), nil
+
+	b64Result := res.(string)
+	c.cache.Store(cacheKey, b64Result)
+
+	var responseBiome BiomeResponse
+	if err := processResponseString(b64Result, &responseBiome); err != nil {
+		return nil, err
+	}
+	return &responseBiome, nil
 }
 
 // ConvertBlockEntity converts a block entity between editions.
 func (c *Converter) ConvertBlockEntity(req BlockEntityRequest) (*BlockEntity, error) {
-	res, err := c.dispatch(req, func(thread *C.graal_isolatethread_t, payload any) (any, error) {
-		req := payload.(BlockEntityRequest)
-		nbtReq := nbtRequest{
-			FromVersion: req.FromVersion, ToVersion: req.ToVersion,
-			FromEdition: req.FromEdition, ToEdition: req.ToEdition,
-			Data: req.BlockEntity,
-		}
+	nbtReq := nbtRequest{
+		FromVersion: req.FromVersion, ToVersion: req.ToVersion,
+		FromEdition: req.FromEdition, ToEdition: req.ToEdition,
+		Data: req.BlockEntity,
+	}
 
-		cInput, err := prepareRequest(nbtReq)
-		if err != nil {
+	b64Input, err := marshalRequest(nbtReq)
+	if err != nil {
+		return nil, err
+	}
+
+	cacheKey := "block_entity:" + b64Input
+	if cached, ok := c.cache.Load(cacheKey); ok {
+		var responseBlockEntity BlockEntity
+		if err := processResponseString(cached.(string), &responseBlockEntity); err != nil {
 			return nil, err
 		}
+		return &responseBlockEntity, nil
+	}
+
+	res, err := c.dispatch(b64Input, func(thread *C.graal_isolatethread_t, payload any) (any, error) {
+		cInput := C.CString(payload.(string))
 		defer C.free(unsafe.Pointer(cInput))
 
 		cResult := C.convert_block_entity(thread, cInput)
@@ -366,15 +432,19 @@ func (c *Converter) ConvertBlockEntity(req BlockEntityRequest) (*BlockEntity, er
 		}
 		defer C.free_result(thread, cResult)
 
-		var responseBlockEntity BlockEntity
-		if err := processResponse(cResult, &responseBlockEntity); err != nil {
-			return nil, err
-		}
-		return &responseBlockEntity, nil
+		return C.GoString(cResult), nil
 	})
 
 	if err != nil {
 		return nil, err
 	}
-	return res.(*BlockEntity), nil
+
+	b64Result := res.(string)
+	c.cache.Store(cacheKey, b64Result)
+
+	var responseBlockEntity BlockEntity
+	if err := processResponseString(b64Result, &responseBlockEntity); err != nil {
+		return nil, err
+	}
+	return &responseBlockEntity, nil
 }
