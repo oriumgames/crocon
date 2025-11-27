@@ -154,7 +154,7 @@ func processResponse(cResult *C.char, responseData any) error {
 
 	decoder := nbt.NewDecoderWithEncoding(bytes.NewReader(nbtResultBytes), nbt.LittleEndian)
 
-	var genericResponse map[string]interface{}
+	var genericResponse map[string]any
 	if err := decoder.Decode(&genericResponse); err != nil {
 		return fmt.Errorf("failed to unmarshal NBT response envelope: %w", err)
 	}
